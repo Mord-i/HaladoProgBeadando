@@ -174,9 +174,8 @@ class ModernKepSzerkesztoApp:
     # ==========================================
     
     def cmd_mentes(self):
-        # TODO: Implementáld a mentést (pl. Pillow .save() vagy cv2.imwrite())
         if self.megjelenitett_kep is None:
-            print("\nNincs mit menteni")
+            self.status("Nincs mit menteni")
             return
         if isinstance(self.megjelenitett_kep, Image.Image):
             pil_img = self.megjelenitett_kep
@@ -195,14 +194,39 @@ class ModernKepSzerkesztoApp:
             if filename:
                 try:
                     pil_img.save(filename)
-                    print(f"\nMentve: {filename}")
+                    self.status(f"Mentve: {filename}")
                 except Exception as e:
-                    print(f"\nHiba mentéskor: {e}")
+                    self.status(f"Hiba mentéskor: {e}")
 
     def _vagas_vegrehajtas(self):
-        # TODO: A self.pontok[0] és self.pontok[1] alapján vágd meg a self.eredeti_kep_adat tömböt
-        print("Vágás logika helye - MÉG NINCS KÉSZ")
-        pass
+        if len(self.pontok) != 2 or self.eredeti_kep_adat is None:
+            self.status("Nincs kép vagy nincs 2 pont a vágáshoz")
+            return
+        
+        x1, y1 = self.pontok[0]
+        x2, y2 = self.pontok[1]
+
+        # legyen minding bal-fent, jobb-lent
+        x1, x2 = sorted((x1, x2))
+        y1, y2 = sorted((y1, y2))
+
+        h, w = self.eredeti_kep_adat.shape[:2]
+
+        #vágás határai képkockán belül
+        x1 = max(0, int(x1))
+        y1 = max(0, int(y1))
+        x2 = max(w, int(x2))
+        y2 = max(h, int(y2))
+
+        if x2 <= x1 or y2 <= y1:
+            self.status("Érvénytelen vágási téglalap")
+            return
+        
+        #vágás
+        cropped = self.eredeti_kep_adat[y1:y2, x1:x2]
+        self.eredeti_kep_adat = cropped
+        self._kep_frissitese()
+        self.status(f"Vágás kész: {x2-x1}x{y2-y1}")
 
     def _perspektiva_vegrehajtas(self):
         # TODO: A self.pontok (4 db koordináta) alapján végezz perspektíva transzformációt
@@ -242,7 +266,13 @@ class ModernKepSzerkesztoApp:
         return real_x, real_y
 
     def on_mouse_down(self, event):
-        if self.eredeti_kep_adat is None or self.mode is None: return
+        if self.eredeti_kep_adat is None or self.mode != "vagas":
+            return
+        # csak az utolsó 2 kattintás mentése
+        if len(self.pontok) >= 2:
+            self.pontok.clear()
+            self.canvas.delete("overlay")
+        
         x, y = self.canvas.canvasx(event.x), self.canvas.canvasy(event.y)
         real_x, real_y = self.get_real_coords(x, y)
         self.pontok.append((real_x, real_y))
