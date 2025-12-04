@@ -235,6 +235,15 @@ class ModernKepSzerkesztoApp:
 
     def _meret_cm_vegrehajtas(self):
         # TODO: Kivágás + Átméretezés (self.cel_cm_meret és self.pontok alapján)
+        if self.eredeti_kep_adat is None:
+            self.status("Nincs megnyitva a kép")
+            return
+        
+        height, width = self.eredeti_kep_adat.shape[:2]
+        displayed_w = int(width *self.scale_factor)
+        displayed_h = int(height *self.scale_factor)
+
+        print("width {width}, height {height}")
         print("Méretre igazítás logika helye - MÉG NINCS KÉSZ")
         pass
 
