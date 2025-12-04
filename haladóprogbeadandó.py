@@ -202,32 +202,39 @@ class ModernKepSzerkesztoApp:
         if len(self.pontok) != 2 or self.eredeti_kep_adat is None:
             self.status("Nincs kép vagy nincs 2 pont a vágáshoz")
             return
-        
-        x1, y1 = self.pontok[0]
-        x2, y2 = self.pontok[1]
 
-        # legyen minding bal-fent, jobb-lent
+        # 1. canvas → image coordinates
+        (x1_c, y1_c), (x2_c, y2_c) = self.pontok
+        x1, y1 = self.get_real_coords(x1_c, y1_c)
+        x2, y2 = self.get_real_coords(x2_c, y2_c)
+
+        # 2. make it always top-left … bottom-right
         x1, x2 = sorted((x1, x2))
         y1, y2 = sorted((y1, y2))
 
         h, w = self.eredeti_kep_adat.shape[:2]
 
-        #vágás határai képkockán belül
-        x1 = max(0, int(x1))
-        y1 = max(0, int(y1))
-        x2 = max(w, int(x2))
-        y2 = max(h, int(y2))
+        # 3. clamp inside real image
+        x1 = max(0, min(x1, w))
+        x2 = max(0, min(x2, w))
+        y1 = max(0, min(y1, h))
+        y2 = max(0, min(y2, h))
 
         if x2 <= x1 or y2 <= y1:
             self.status("Érvénytelen vágási téglalap")
             return
-        
-        #vágás
-        cropped = self.eredeti_kep_adat[y1:y2, x1:x2]
-        self.eredeti_kep_adat = cropped
-        self._kep_frissitese()
-        self.status(f"Vágás kész: {x2-x1}x{y2-y1}")
 
+        # 4. crop
+        cropped = self.eredeti_kep_adat[y1:y2, x1:x2].copy()
+        self.eredeti_kep_adat = cropped          # replace original
+        self.pontok = []                         # clear selection
+        self.canvas.delete("overlay")
+
+        # 5. refresh → cropped piece fills the whole canvas
+        self._kep_frissitese()
+        self.status(f"Vágás kész: {x2-x1}×{y2-y1}")
+
+        
     def _perspektiva_vegrehajtas(self):
         # TODO: A self.pontok (4 db koordináta) alapján végezz perspektíva transzformációt
         print("Perspektíva logika helye - MÉG NINCS KÉSZ")
@@ -268,10 +275,9 @@ class ModernKepSzerkesztoApp:
     def on_mouse_down(self, event):
         if self.eredeti_kep_adat is None or self.mode != "vagas":
             return
-        # csak az utolsó 2 kattintás mentése
-        if len(self.pontok) >= 2:
-            self.pontok.clear()
-            self.canvas.delete("overlay")
+        # start a fresh rectangle
+        self.pontok = [ (event.x, event.y) ]
+        self.canvas.delete("overlay")
         
         x, y = self.canvas.canvasx(event.x), self.canvas.canvasy(event.y)
         real_x, real_y = self.get_real_coords(x, y)
@@ -282,23 +288,19 @@ class ModernKepSzerkesztoApp:
             r = 5
             self.canvas.create_oval(x-r, y-r, x+r, y+r, fill="red", tags="overlay")
             if len(self.pontok) == 4:
-                self._perspektiva_vegrehajtas() # Üres függvény hívása
+                self._perspektiva_vegrehajtas()
 
     def on_mouse_drag(self, event):
-        if self.mode in ["vagas", "meret_cm"] and len(self.pontok) > 0:
-            # Vizuális keret rajzolása húzás közben
-            start_real = self.pontok[0]
-            sx = (start_real[0] * self.scale_factor) + self.offset_x
-            sy = (start_real[1] * self.scale_factor) + self.offset_y
-            cx, cy = self.canvas.canvasx(event.x), self.canvas.canvasy(event.y)
+        if self.mode == "vagas" and self.pontok:
             self.canvas.delete("overlay")
-            self.canvas.create_rectangle(sx, sy, cx, cy, outline="yellow", width=2, tags="overlay")
+            x0, y0 = self.pontok[0]
+            self.canvas.create_rectangle(x0, y0, event.x, event.y, outline="yellow", width=2, tags="overlay")
+
 
     def on_mouse_up(self, event):
-        if self.mode in ["vagas", "meret_cm"] and len(self.pontok) > 0:
-            x, y = self.canvas.canvasx(event.x), self.canvas.canvasy(event.y)
-            real_x, real_y = self.get_real_coords(x, y)
-            self.pontok.append((real_x, real_y))
+        if self.mode == "vagas" and len(self.pontok) == 1:
+            self.pontok.append( (event.x, event.y) )
+            self._vagas_vegrehajtas()
             
             if self.mode == "vagas":
                 self._vagas_vegrehajtas() # Üres függvény hívása
