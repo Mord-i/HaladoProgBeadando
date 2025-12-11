@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog
 from PIL import Image, ImageTk
 import numpy as np
+import cv2
 
 # --- 1. EGYEDI ABLAK A MÉRETEKHEZ (GUI RÉSZ) ---
 class MeretMegadasAblak(tk.Toplevel):
@@ -105,9 +106,6 @@ class ModernKepSzerkesztoApp:
     def status(self, msg):
         self.status_bar.config(text=msg)
 
-    # ==========================================
-    # 1. FUNKCIÓ: BETÖLTÉS (EZT KÉRTED KITÖLTVE)
-    # ==========================================
     def cmd_betoltes(self):
         """
         Betölti a képet Pillow-val (minden formátum + ékezetes fájlnevek támogatása),
@@ -169,10 +167,6 @@ class ModernKepSzerkesztoApp:
         self.canvas.delete("all")
         self.canvas.create_image(self.offset_x, self.offset_y, anchor=tk.NW, image=self.megjelenitett_kep)
 
-    # ==========================================
-    # TOVÁBBI FUNKCIÓK (CSAK A HELYÜK VAN MEG)
-    # ==========================================
-    
     def cmd_mentes(self):
         if self.megjelenitett_kep is None:
             self.status("Nincs mit menteni")
@@ -205,8 +199,6 @@ class ModernKepSzerkesztoApp:
         
         x1, y1 = self.pontok[0]
         x2, y2 = self.pontok[1]
-
-        # legyen minding bal-fent, jobb-lent
         x1, x2 = sorted((x1, x2))
         y1, y2 = sorted((y1, y2))
 
@@ -215,37 +207,86 @@ class ModernKepSzerkesztoApp:
         #vágás határai képkockán belül
         x1 = max(0, int(x1))
         y1 = max(0, int(y1))
-        x2 = max(w, int(x2))
-        y2 = max(h, int(y2))
+        x2 = min(w, int(x2))
+        y2 = min(h, int(y2))
 
         if x2 <= x1 or y2 <= y1:
             self.status("Érvénytelen vágási téglalap")
             return
         
         #vágás
-        cropped = self.eredeti_kep_adat[y1:y2, x1:x2]
-        self.eredeti_kep_adat = cropped
+        self.eredeti_kep_adat = self.eredeti_kep_adat[y1:y2, x1:x2]
         self._kep_frissitese()
         self.status(f"Vágás kész: {x2-x1}x{y2-y1}")
 
     def _perspektiva_vegrehajtas(self):
-        # TODO: A self.pontok (4 db koordináta) alapján végezz perspektíva transzformációt
-        print("Perspektíva logika helye - MÉG NINCS KÉSZ")
-        pass
+        if len(self.pontok) != 4 or self.eredeti_kep_adat is None:
+            self.status("Nincs 4 pont vagy nincs kép")
+            return
+
+        h, w = self.eredeti_kep_adat.shape[:2]
+
+        pts_src = self.sort_pontok(np.array(self.pontok, dtype=np.float32))
+
+        pts_dst = np.array([[0, 0],          # TL
+                            [w, 0],          # TR
+                            [w, h],          # BR
+                            [0, h]],         # BL
+                            dtype=np.float32)
+
+        # warping
+        M = cv2.getPerspectiveTransform(pts_src, pts_dst)
+        warped = cv2.warpPerspective(self.eredeti_kep_adat, M, (w, h))
+
+        self.eredeti_kep_adat = warped
+        self._kep_frissitese()
+        self.status("Perspektíva kész")
 
     def _meret_cm_vegrehajtas(self):
-        # TODO: Kivágás + Átméretezés (self.cel_cm_meret és self.pontok alapján)
+        #dpi=300
         if self.eredeti_kep_adat is None:
-            self.status("Nincs megnyitva a kép")
+            self.status("Nincs megnyitva kép")
             return
-        
-        height, width = self.eredeti_kep_adat.shape[:2]
-        displayed_w = int(width *self.scale_factor)
-        displayed_h = int(height *self.scale_factor)
+        if self.cel_cm_meret is None:
+            self.status("Nincs megadva cél-méret (cm)")
+            return
+        if len(self.pontok) != 2:
+            self.status("Nincs kijelölve téglalap")
+            return
 
-        print("width {width}, height {height}")
-        print("Méretre igazítás logika helye - MÉG NINCS KÉSZ")
-        pass
+        # kijelölés koordinátái kép-pixelekben
+        x1, y1 = self.pontok[0]
+        x2, y2 = self.pontok[1]
+        x1, x2 = sorted((x1, x2))
+        y1, y2 = sorted((y1, y2))
+
+        h, w = self.eredeti_kep_adat.shape[:2]
+        x1 = max(0, int(x1))
+        y1 = max(0, int(y1))
+        x2 = min(w, int(x2))
+        y2 = min(h, int(y2))
+
+        if x2 <= x1 or y2 <= y1:
+            self.status("Érvénytelen kijelölés")
+            return
+
+        cropped = self.eredeti_kep_adat[y1:y2, x1:x2]   # kivágás
+
+        # pixel átszámítás (300 dpi)
+        target_w_cm, target_h_cm = self.cel_cm_meret
+        DPI = 300
+        CM_TO_INCH = 1 / 2.54
+        px_w = int(round(target_w_cm * CM_TO_INCH * DPI))
+        px_h = int(round(target_h_cm * CM_TO_INCH * DPI))
+
+        # átméretezés
+        pil_crop = Image.fromarray(cropped)
+        pil_resized = pil_crop.resize((px_w, px_h), Image.LANCZOS)
+
+        # eredmény visszaírása
+        self.eredeti_kep_adat = np.array(pil_resized)
+        self._kep_frissitese()
+        self.status(f"Méretre igazítva: {target_w_cm}×{target_h_cm} cm  (≈{px_w}×{px_h} px)")
 
     # ==========================================
     # UI LOGIKA ÉS EGÉRKEZELÉS
@@ -275,23 +316,32 @@ class ModernKepSzerkesztoApp:
         return real_x, real_y
 
     def on_mouse_down(self, event):
-        if self.eredeti_kep_adat is None or self.mode != "vagas":
+        if self.eredeti_kep_adat is None:
             return
-        # csak az utolsó 2 kattintás mentése
-        if len(self.pontok) >= 2:
-            self.pontok.clear()
-            self.canvas.delete("overlay")
         
+        # kattintás koordinátái
         x, y = self.canvas.canvasx(event.x), self.canvas.canvasy(event.y)
         real_x, real_y = self.get_real_coords(x, y)
-        self.pontok.append((real_x, real_y))
+
+        if self.mode == "vagas":
+            # csak az utolsó 2 kattintás mentése
+            if len(self.pontok) >= 2:
+                self.pontok.clear()
+                self.canvas.delete("overlay")
+            self.pontok.append((real_x, real_y))
 
         # Vizuális visszajelzés (pötty)
         if self.mode == "perspektiva":
-            r = 5
-            self.canvas.create_oval(x-r, y-r, x+r, y+r, fill="red", tags="overlay")
+            if len(self.pontok) <4:
+                self.pontok.append((real_x, real_y))
+                r = 5
+                self.canvas.create_oval(x-r, y-r, x+r, y+r, fill="red", tags="overlay")
+            print("\nx:", x)
+            print("y:", y)
+            print("\nreal_x:", real_x)
+            print("real_y:", real_y)
             if len(self.pontok) == 4:
-                self._perspektiva_vegrehajtas() # Üres függvény hívása
+                self._perspektiva_vegrehajtas()
 
     def on_mouse_drag(self, event):
         if self.mode in ["vagas", "meret_cm"] and len(self.pontok) > 0:
@@ -310,9 +360,15 @@ class ModernKepSzerkesztoApp:
             self.pontok.append((real_x, real_y))
             
             if self.mode == "vagas":
-                self._vagas_vegrehajtas() # Üres függvény hívása
+                self._vagas_vegrehajtas()
             elif self.mode == "meret_cm":
-                self._meret_cm_vegrehajtas() # Üres függvény hívása
+                self._meret_cm_vegrehajtas()
+
+    def sort_pontok(self, pts):
+        top2, bot2 = pts[np.argsort(pts[:, 1])][:2], pts[np.argsort(pts[:, 1])][2:]
+        tl, tr = top2 [np.argsort(top2 [:, 0])]
+        bl, br = bot2 [np.argsort(bot2 [:, 0])]
+        return np.array([tl, tr, br, bl], dtype=np.float32)
 
 if __name__ == "__main__":
     root = tk.Tk()
