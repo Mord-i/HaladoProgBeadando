@@ -336,22 +336,19 @@ class ModernKepSzerkesztoApp:
                 self.pontok.append((real_x, real_y))
                 r = 5
                 self.canvas.create_oval(x-r, y-r, x+r, y+r, fill="red", tags="overlay")
-            print("\nx:", x)
-            print("y:", y)
-            print("\nreal_x:", real_x)
-            print("real_y:", real_y)
+
             if len(self.pontok) == 4:
                 self._perspektiva_vegrehajtas()
 
     def on_mouse_drag(self, event):
-        if self.mode in ["vagas", "meret_cm"] and len(self.pontok) > 0:
+        if self.mode is ("vagas" or "meret_cm") and len(self.pontok) > 0:
             # Vizuális keret rajzolása húzás közben
-            start_real = self.pontok[0]
-            sx = (start_real[0] * self.scale_factor) + self.offset_x
-            sy = (start_real[1] * self.scale_factor) + self.offset_y
+            sx, sy = self.pontok[0]
+            sx = int(sx * self.scale_factor) + self.offset_x
+            sy = int(sy * self.scale_factor) + self.offset_y
             cx, cy = self.canvas.canvasx(event.x), self.canvas.canvasy(event.y)
-            self.canvas.delete("overlay")
-            self.canvas.create_rectangle(sx, sy, cx, cy, outline="yellow", width=2, tags="overlay")
+            self.canvas.delete("rubber")
+            self.canvas.create_rectangle(sx, sy, cx, cy, outline="yellow", width=2, tags="rubber")
 
     def on_mouse_up(self, event):
         if self.mode in ["vagas", "meret_cm"] and len(self.pontok) > 0:
